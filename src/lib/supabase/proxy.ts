@@ -1,7 +1,9 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/register"];
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
+
+const PUBLIC_PATHS = ["/login", "/register", "/auth/confirm"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -22,7 +24,7 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: (list) => {
+        setAll: (list: CookieToSet[]) => {
           for (const { name, value } of list) {
             request.cookies.set(name, value);
           }

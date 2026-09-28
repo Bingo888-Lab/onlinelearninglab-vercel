@@ -61,6 +61,12 @@ describe("updateSession", () => {
     expect(res.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("未登录访问 /auth/confirm 不重定向，允许邮件确认回调", async () => {
+    const { updateSession } = await load();
+    const res = await updateSession(req("/auth/confirm?token_hash=opaque&type=email"));
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("未登录访问 API 路径不重定向，交由路由自己返回 401", async () => {
     const { updateSession } = await load();
     const res = await updateSession(req("/api/documents"));

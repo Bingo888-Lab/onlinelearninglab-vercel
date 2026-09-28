@@ -11,13 +11,13 @@ async function load() {
   return await import("@/lib/auth");
 }
 
-function claimRow(role: string | null) {
+const claimRow = (role: string | null | undefined) => {
   from.mockReturnValue({
     select: () => ({
       eq: () => ({ maybeSingle: async () => ({ data: role === undefined ? null : { role }, error: null }) }),
     }),
   });
-}
+};
 
 beforeEach(() => {
   vi.clearAllMocks();

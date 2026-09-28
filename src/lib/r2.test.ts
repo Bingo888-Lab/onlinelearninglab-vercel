@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const getSignedUrl = vi.fn(async () => "https://signed.example/obj");
+const getSignedUrl = vi.fn(
+  async (..._args: unknown[]): Promise<string> => "https://signed.example/obj",
+);
 vi.mock("@aws-sdk/s3-request-presigner", () => ({ getSignedUrl }));
 
 const send = vi.fn(async () => ({ ContentType: "application/pdf", ContentLength: 1234 }));
@@ -48,7 +50,6 @@ describe("presignPut", () => {
     const cmd = getSignedUrl.mock.calls[0][1] as { input: { ContentType: string } };
     expect(cmd.input.ContentType).toBe("application/pdf");
   });
-
   it("expire 默认 300 秒", async () => {
     const { presignPut } = await load();
     await presignPut(KEY);

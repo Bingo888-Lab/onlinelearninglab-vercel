@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const rpc = vi.fn();
-const createUser = vi.fn();
+const signUp = vi.fn();
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: vi.fn(() => ({ rpc, auth: { admin: { createUser } } })),
+  createAdminClient: vi.fn(() => ({ rpc })),
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  createServerSupabaseClient: vi.fn(async () => ({ auth: { signUp } })),
 }));
 
 async function load() {
@@ -19,43 +22,46 @@ const valid = { email: "s@example.com", password: "longenough1", inviteCode: "WE
 beforeEach(() => {
   vi.clearAllMocks();
   rpc.mockResolvedValue({ data: true, error: null });
-  createUser.mockResolvedValue({ data: { user: { id: "u1" } }, error: null });
+  signUp.mockResolvedValue({ data: { user: { id: "u1" }, session: null }, error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
 });
 
 describe("POST /api/register", () => {
-  it("码有效 → 201，先 consume 后 createUser", async () => {
+  it("码有效 → 201，先 consume 后 signUp 并带 confirmation callback", async () => {
     const { POST } = await load();
     const res = await POST(body(valid));
     expect(res.status).toBe(201);
     expect(rpc).toHaveBeenCalledWith("consume_invite_code", { p_code: "WELCOME" });
-    expect(createUser).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "s@example.com" }),
-    );
-    // 顺序：先扣次数再建号
-    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(createUser.mock.invocationCallOrder[0]);
+    expect(signUp).toHaveBeenCalledWith({
+      email: "s@example.com",
+      password: "longenough1",
+      options: { emailRedirectTo: "http://localhost/auth/confirm" },
+    });
+    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(signUp.mock.invocationCallOrder[0]);
+    expect(await res.json()).toEqual({ needsEmailConfirmation: true });
   });
 
-  it("码无效 → 400 invite_invalid，且不建号（不区分失效原因）", async () => {
+  it("码无效 → 400 invite_invalid，且不 signUp（不区分失效原因）", async () => {
     rpc.mockResolvedValue({ data: false, error: null });
     const { POST } = await load();
     const res = await POST(body(valid));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "invite_invalid" });
-    expect(createUser).not.toHaveBeenCalled();
+    expect(signUp).not.toHaveBeenCalled();
   });
 
-  it("RPC 报错 → 502，同样不泄露原因", async () => {
+  it("RPC 报错 → 400，且不 signUp", async () => {
     rpc.mockResolvedValue({ data: null, error: { message: "db down" } });
     const { POST } = await load();
     const res = await POST(body(valid));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "invite_invalid" });
-    expect(createUser).not.toHaveBeenCalled();
+    expect(signUp).not.toHaveBeenCalled();
   });
 
-  it("createUser 失败 → 退还邀请码次数（refund_invite_code）", async () => {
-    createUser.mockResolvedValue({ data: { user: null }, error: { message: "already registered" } });
+  it("signUp 失败 → 退还邀请码次数（refund_invite_code）", async () => {
+    signUp.mockResolvedValue({ data: { user: null, session: null }, error: { message: "already registered" } });
     const { POST } = await load();
     const res = await POST(body(valid));
     expect(res.status).toBe(502);
@@ -75,10 +81,10 @@ describe("POST /api/register", () => {
     expect(res.status).toBe(400);
   });
 
-  it("测试环境自动确认时返回 needsEmailConfirmation=false", async () => {
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
+  it("测试环境自动确认时 signUp 返回 session，API 显示无需确认邮件", async () => {
+    signUp.mockResolvedValue({ data: { user: { id: "u1" }, session: { access_token: "test" } }, error: null });
     const { POST } = await load();
     const res = await POST(body(valid));
-    expect(await res.json()).toEqual({ needsEmailConfirmation: true });
+    expect(await res.json()).toEqual({ needsEmailConfirmation: false });
   });
 });

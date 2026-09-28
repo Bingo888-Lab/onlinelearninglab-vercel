@@ -1,69 +1,92 @@
-import Image from "next/image";
+import Link from "next/link";
+import { requireUser } from "@/lib/auth";
+import LogoutButton from "@/components/logout-button";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+type Row = { id: string; title: string; size_bytes: number; created_at: string };
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const guard = await requireUser();
+  if (!guard.ok) return null; // proxy.ts 已重定向，这只是兜底
+
+  const q = (await searchParams).q?.trim() ?? "";
+  const supabase = await createServerSupabaseClient();
+
+  const query = supabase
+    .from("documents")
+    .select("id, title, size_bytes, created_at")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  const { data } = q ? await query.ilike("title", `%${q}%`) : await query;
+  const docs = (data ?? []) as Row[];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <>
+      <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-3 dark:border-neutral-800">
+        <Link href="/" className="font-semibold">
+          OnlineLearningLab
+        </Link>
+        <div className="flex items-center gap-4">
+          {guard.role === "admin" && (
+            <Link href="/admin" data-testid="nav-admin" className="text-sm underline">
+              管理
+            </Link>
+          )}
+          <LogoutButton />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
+        <form method="get" className="mb-6 flex gap-2">
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="搜索文件名…"
+            data-testid="search"
+            className="flex-1 rounded border border-neutral-300 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          <button type="submit" className="rounded border border-neutral-300 px-4 py-2 dark:border-neutral-700">
+            搜索
+          </button>
+        </form>
+
+        {docs.length === 0 ? (
+          <p data-testid="empty" className="text-neutral-600 dark:text-neutral-400">
+            {q ? "没有匹配的资料" : "还没有资料，上传第一份 PDF 吧"}
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+        ) : (
+          <ul className="space-y-2" data-testid="doc-list">
+            {docs.map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={`/documents/${d.id}`}
+                  data-testid="doc-item"
+                  className="flex items-center justify-between rounded border border-neutral-200 px-4 py-3 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                >
+                  <span className="truncate">{d.title}</span>
+                  <span className="ml-4 shrink-0 text-sm text-neutral-500">
+                    {formatSize(d.size_bytes)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </main>
-    </div>
+    </>
   );
 }

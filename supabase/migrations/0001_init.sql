@@ -111,3 +111,10 @@ revoke all on function public.consume_invite_code(text) from public, anon, authe
 grant execute on function public.consume_invite_code(text) to service_role;
 revoke all on function public.refund_invite_code(text) from public, anon, authenticated;
 grant execute on function public.refund_invite_code(text) to service_role;
+
+-- 明确 PostgreSQL GRANT（RLS policy 不会自动授予表级 SQL 权限）
+grant usage on schema public to authenticated, service_role;
+grant select on public.profiles to authenticated;
+grant select, insert, delete on public.documents to authenticated;
+revoke all on public.invite_codes from anon, authenticated;
+grant all on public.profiles, public.documents, public.invite_codes to service_role;

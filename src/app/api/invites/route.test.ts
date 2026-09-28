@@ -3,14 +3,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const requireAdmin = vi.fn();
 vi.mock("@/lib/auth", () => ({ requireAdmin }));
 
-const order = vi.fn();
-const limit = vi.fn();
-const single = vi.fn();
-const eq = vi.fn(() => ({ single }));
-const select = vi.fn(() => ({ order }));
-const insertSingle = vi.fn();
+const order = vi.fn((..._args: unknown[]) => ({ limit: (...a: unknown[]) => limit(...a) }));
+type QueryResult = { data: unknown[] | null; error: { message: string } | null };
+const limit = vi.fn(async (..._args: unknown[]): Promise<QueryResult> => ({
+  data: [{ code: "WELCOME", used_count: 0, max_uses: 5 }],
+  error: null,
+}));
+type SingleResult = {
+  data: { code: string } | null;
+  error: { code?: string; message?: string } | null;
+};
+const insertSingle = vi.fn(async (): Promise<SingleResult> => ({
+  data: { code: "WELCOME" },
+  error: null,
+}));
 const insert = vi.fn(() => ({ select: () => ({ single: insertSingle }) }));
-const from = vi.fn(() => ({ select, insert }));
+const from = vi.fn(() => ({ select: () => ({ order }), insert }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(() => ({ from })),
 }));
@@ -36,12 +44,11 @@ beforeEach(() => {
   limit.mockResolvedValue({ data: [{ code: "WELCOME", used_count: 0, max_uses: 5 }], error: null });
   insertSingle.mockResolvedValue({ data: { code: "WELCOME" }, error: null });
 });
-
 describe("GET /api/invites", () => {
   it("未登录 → 401", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 401, code: "unauthorized" });
     const { GET } = await load();
-    const res = await GET(new Request("http://localhost/api/invites"));
+    const res = await GET();
     expect(res.status).toBe(401);
     expect(from).not.toHaveBeenCalled();
   });
@@ -49,13 +56,13 @@ describe("GET /api/invites", () => {
   it("student → 403", async () => {
     requireAdmin.mockResolvedValue({ ok: false, status: 403, code: "forbidden" });
     const { GET } = await load();
-    const res = await GET(new Request("http://localhost/api/invites"));
+    const res = await GET();
     expect(res.status).toBe(403);
   });
 
   it("admin → 200，倒序列出", async () => {
     const { GET } = await load();
-    const res = await GET(new Request("http://localhost/api/invites"));
+    const res = await GET();
     expect(res.status).toBe(200);
     expect(from).toHaveBeenCalledWith("invite_codes");
     expect(order).toHaveBeenCalledWith("created_at", { ascending: false });
@@ -64,11 +71,10 @@ describe("GET /api/invites", () => {
   it("查询失败 → 502", async () => {
     limit.mockResolvedValue({ data: null, error: { message: "boom" } });
     const { GET } = await load();
-    const res = await GET(new Request("http://localhost/api/invites"));
+    const res = await GET();
     expect(res.status).toBe(502);
   });
 });
-
 describe("POST /api/invites", () => {
   it("admin 新建 → 201，写入 created_by", async () => {
     const { POST } = await load();

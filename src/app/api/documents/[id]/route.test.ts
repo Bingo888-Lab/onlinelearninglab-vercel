@@ -7,7 +7,12 @@ const deleteObject = vi.fn(async () => undefined);
 vi.mock("@/lib/r2", () => ({ deleteObject, headObject: vi.fn(), presignGet: vi.fn(), presignPut: vi.fn() }));
 
 const single = vi.fn();
-const eqDelete = vi.fn(() => Promise.resolve({ data: null, error: null }));
+const eqDelete = vi.fn(
+  async (..._args: unknown[]): Promise<{ data: null; error: { message?: string } | null }> => ({
+    data: null,
+    error: null,
+  }),
+);
 const eqSelect = vi.fn(() => ({ single }));
 const from = vi.fn(() => {
   // 真实链路：from().select().eq().single() 与 from().delete().eq()

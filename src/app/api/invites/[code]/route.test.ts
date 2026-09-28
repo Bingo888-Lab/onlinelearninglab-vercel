@@ -4,7 +4,6 @@ const requireAdmin = vi.fn();
 vi.mock("@/lib/auth", () => ({ requireAdmin }));
 
 const patchSingle = vi.fn();
-const patch = vi.fn(() => ({ select: () => ({ single: patchSingle }) }));
 const update = vi.fn(() => ({ eq: () => ({ select: () => ({ single: patchSingle }) }) }));
 const del = vi.fn();
 const from = vi.fn(() => ({ select: () => ({ eq: () => ({ single: vi.fn() }) }), update, delete: del }));

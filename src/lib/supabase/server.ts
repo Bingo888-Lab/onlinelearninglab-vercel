@@ -1,5 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { CookieOptions } from "@supabase/ssr";
+
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
 /** RSC / Route Handler 用的服务端客户端，读写 cookie 会话 */
 export async function createServerSupabaseClient() {
@@ -11,7 +14,7 @@ export async function createServerSupabaseClient() {
     {
       cookies: {
         getAll: () => store.getAll(),
-        setAll: (list) => {
+        setAll: (list: CookieToSet[]) => {
           try {
             for (const { name, value, options } of list) {
               store.set(name, value, options);
