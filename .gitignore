@@ -17,6 +17,7 @@ next-env.d.ts
 /test-results
 /e2e/fixtures/*.pdf
 /e2e/.tmp/
+.env.production.local
 
 # misc
 .DS_Store
