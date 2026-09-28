@@ -1,9 +1,8 @@
 -- OnlineLearningLab v0.1.0 初始 schema
--- 应用方式见 README：Dashboard SQL Editor 逐段执行，或 pnpm dlx supabase db push --db-url ...
+-- 分 4 段执行：1-tables.sql → 2-functions.sql → 3-rls.sql → 4-grants.sql
+-- 本文件是 4 段的顺序拼接，供 pnpm dlx supabase db push 使用
 
--- ─────────────────────────────────────────────────────────────
--- profiles：账号元数据 + 角色
--- ─────────────────────────────────────────────────────────────
+-- 第 1 段：表与索引
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
@@ -11,9 +10,6 @@ create table public.profiles (
   created_at timestamptz not null default now()
 );
 
--- ─────────────────────────────────────────────────────────────
--- documents：PDF 元数据。字节在 R2，本表只存 key + 展示信息
--- ─────────────────────────────────────────────────────────────
 create table public.documents (
   id uuid primary key default gen_random_uuid(),
   title text not null check (char_length(title) between 1 and 200),
@@ -24,9 +20,6 @@ create table public.documents (
 );
 create index documents_created_at_idx on public.documents (created_at desc);
 
--- ─────────────────────────────────────────────────────────────
--- invite_codes：注册邀请码。code 为可读主键
--- ─────────────────────────────────────────────────────────────
 create table public.invite_codes (
   code text primary key check (char_length(code) between 4 and 40),
   max_uses integer not null check (max_uses > 0),
@@ -37,26 +30,22 @@ create table public.invite_codes (
   created_at timestamptz not null default now()
 );
 
--- ─────────────────────────────────────────────────────────────
--- trigger：auth.users 新增时自动建 student profile
--- ─────────────────────────────────────────────────────────────
+-- 第 2 段：trigger 与两个 RPC
 create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public as $fn$
 begin
   insert into public.profiles (id, email) values (new.id, new.email)
   on conflict (id) do nothing;
   return new;
-end $$;
+end $fn$;
 
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- ─────────────────────────────────────────────────────────────
 -- 邀请码原子消耗：并发安全。WHERE 条件全在单条 UPDATE 内判定
--- ─────────────────────────────────────────────────────────────
 create or replace function public.consume_invite_code(p_code text)
-returns boolean language plpgsql security definer set search_path = public as $$
+returns boolean language plpgsql security definer set search_path = public as $fn$
 declare
   v_affected integer;
 begin
@@ -68,22 +57,20 @@ begin
      and (expires_at is null or expires_at > now());
   get diagnostics v_affected = row_count;
   return v_affected > 0;
-end $$;
+end $fn$;
 
 -- 补偿：signUp 失败时把次数还回去（风险 R2）
 create or replace function public.refund_invite_code(p_code text)
-returns boolean language plpgsql security definer set search_path = public as $$
+returns boolean language plpgsql security definer set search_path = public as $fn$
 begin
   update public.invite_codes
      set used_count = greatest(used_count - 1, 0)
    where code = p_code
      and used_count > 0;
   return found;
-end $$;
+end $fn$;
 
--- ─────────────────────────────────────────────────────────────
--- RLS：应用层已校验角色，RLS 是第二道防线
--- ─────────────────────────────────────────────────────────────
+-- 第 3 段：RLS 策略
 alter table public.profiles enable row level security;
 alter table public.documents enable row level security;
 alter table public.invite_codes enable row level security;
@@ -104,15 +91,12 @@ create policy "admin delete documents" on public.documents
   using (exists (select 1 from public.profiles p
                   where p.id = auth.uid() and p.role = 'admin'));
 
--- invite_codes 完全不对客户端开放：仅 service_role 经 API 路由访问
-
--- RPC 仅 service_role 可调
+-- 第 4 段：权限。RLS policy 不含表级 GRANT，漏了就全表 403
 revoke all on function public.consume_invite_code(text) from public, anon, authenticated;
 grant execute on function public.consume_invite_code(text) to service_role;
 revoke all on function public.refund_invite_code(text) from public, anon, authenticated;
 grant execute on function public.refund_invite_code(text) to service_role;
 
--- 明确 PostgreSQL GRANT（RLS policy 不会自动授予表级 SQL 权限）
 grant usage on schema public to authenticated, service_role;
 grant select on public.profiles to authenticated;
 grant select, insert, delete on public.documents to authenticated;

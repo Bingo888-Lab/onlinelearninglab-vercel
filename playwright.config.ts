@@ -1,14 +1,28 @@
 import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { parseEnv, findEnvProblems } from "./scripts/check-env.mjs";
 
-const env = parseEnv(readFileSync(".env.local", "utf8"));
-const problems = findEnvProblems(env);
-if (problems.length > 0) {
-  throw new Error(
-    `e2e 缺少环境变量：\n${problems.map((p) => `  - ${p}`).join("\n")}\n先执行 cp .env.example .env.local 并填入测试项目的值。`,
-  );
+function parseEnvFile(filePath: string) {
+  const env: Record<string, string> = {};
+  const text = readFileSync(filePath, "utf8");
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const name = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[name] = value;
+  }
+  return env;
 }
+
+const env = parseEnvFile(".env.local");
 
 export default defineConfig({
   testDir: "./e2e",
