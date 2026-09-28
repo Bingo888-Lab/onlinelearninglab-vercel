@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { RegisterBody } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -23,7 +23,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invite_invalid" }, { status: 400 });
   }
 
-  const auth = await createServerSupabaseClient();
+  // Public client: the service-role client would swallow the "user already exists"
+  // signal and would not send the confirmation email.
+  const auth = createBrowserSupabaseClient();
   const emailRedirectTo = new URL("/auth/confirm", new URL(request.url).origin).toString();
 
   const { data, error } = await auth.auth.signUp({

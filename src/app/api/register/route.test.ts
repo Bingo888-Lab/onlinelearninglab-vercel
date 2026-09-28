@@ -5,8 +5,8 @@ const signUp = vi.fn();
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(() => ({ rpc })),
 }));
-vi.mock("@/lib/supabase/server", () => ({
-  createServerSupabaseClient: vi.fn(async () => ({ auth: { signUp } })),
+vi.mock("@/lib/supabase/client", () => ({
+  createBrowserSupabaseClient: vi.fn(() => ({ auth: { signUp } })),
 }));
 
 async function load() {
