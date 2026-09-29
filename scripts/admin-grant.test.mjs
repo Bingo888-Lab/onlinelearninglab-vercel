@@ -10,18 +10,18 @@ describe("resolveAdminArgs", () => {
   });
 
   it("accepts an explicit env file so production can be targeted", () => {
-    expect(resolveAdminArgs(["--email", "A@B.com", "--env-file", ".env.production.local"])).toEqual({
+    expect(resolveAdminArgs(["--email", "A@B.com", "--env-file", ".env.prod.local"])).toEqual({
       email: "a@b.com",
-      envFile: ".env.production.local",
+      envFile: ".env.prod.local",
     });
   });
 
   it("reports which argument is missing", () => {
     expect(resolveAdminArgs([])).toEqual({
-      error: "用法：pnpm admin:grant --email you@example.com [--env-file .env.production.local]",
+      error: "用法：pnpm admin:grant --email you@example.com [--env-file .env.prod.local]",
     });
     expect(resolveAdminArgs(["--email"])).toEqual({
-      error: "用法：pnpm admin:grant --email you@example.com [--env-file .env.production.local]",
+      error: "用法：pnpm admin:grant --email you@example.com [--env-file .env.prod.local]",
     });
   });
 });

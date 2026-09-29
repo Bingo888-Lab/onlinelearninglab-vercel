@@ -38,6 +38,22 @@ holds the test Supabase (`xleewqxbjfetctmsjquk`) and test R2 bucket
 (`online-learning-lab-test`). Production values are injected by Vercel only — never
 put them in `.env.local`.
 
+The local production snapshot lives in **`.env.prod.local`**, and that name is
+load-bearing: Next 16 auto-loads `.env.production.local` in production mode with
+higher precedence than `.env.local`. Naming it `.env.production.local` makes
+`pnpm build` inline the **production** Supabase URL into the client bundle and makes
+`pnpm start` / `pnpm e2e` talk to the production database and bucket. Read the
+snapshot explicitly instead:
+
+```bash
+vercel env pull .env.prod.local --environment=production
+pnpm admin:grant --email you@example.com --env-file .env.prod.local
+```
+
+Vercel marks the R2/Supabase variables `sensitive`, so their values cannot be read
+back through the API or CLI — keep `.env.prod.local` (and the ignored
+`.env-backup-*/`) on disk if you need them.
+
 ## Layout
 
 ```
@@ -114,6 +130,12 @@ Errors are `{"error":"<code>"}`. Codes: `unauthorized` 401, `forbidden` 403,
 - Reset scripts run as a `&&` prefix inside `webServer.command`, never in
   `globalSetup`: webServers start first, and a live file handle makes the wipe fail
   EPERM on Windows.
+- An interrupted `pnpm build` can leave a Turbopack **junction** under
+  `.next/node_modules/`. The next build then dies with
+  `EPERM: operation not permitted, unlink '.next/node_modules/...'`, because the
+  cleanup unlinks a directory junction. Break the junction with `fs.rmdirSync`
+  (never `unlink`/`rmSync` for it), delete `.next`, rebuild. `node_modules` itself is
+  untouched.
 
 ## `data-testid` contract (e2e depends on these)
 

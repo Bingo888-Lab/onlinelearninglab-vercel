@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { parseEnv, findEnvProblems } from "./check-env.mjs";
 
 const USAGE =
-  "用法：pnpm admin:grant --email you@example.com [--env-file .env.production.local]";
+  "用法：pnpm admin:grant --email you@example.com [--env-file .env.prod.local]";
 
 export function resolveAdminArgs(argv) {
   const read = (name) => {
