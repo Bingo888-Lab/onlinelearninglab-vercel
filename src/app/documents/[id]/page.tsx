@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { presignGet } from "@/lib/r2";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import ReaderFrame from "./reader-frame";
+import { queryPage } from "@/lib/page-query-state";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,19 @@ export default async function DocumentPage({
   if (!UUID_RE.test(id)) notFound();
 
   const supabase = await createServerSupabaseClient();
-  const { data: doc } = await supabase
+  const result = await queryPage(() => supabase
     .from("documents")
     .select("id, title, object_key")
     .eq("id", id)
-    .maybeSingle();
+    .maybeSingle());
 
+  if (result.status === "error") {
+    return <div className="flex min-h-screen flex-col">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800"><Link href="/" className="text-sm underline">← 返回列表</Link></div>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3" role="alert"><p className="text-neutral-600 dark:text-neutral-400">资料加载失败，请重新加载后重试。</p><Link href={`/documents/${id}`} className="rounded border border-neutral-300 px-4 py-2 dark:border-neutral-700">重新加载</Link></div>
+    </div>;
+  }
+  const doc = result.data;
   if (!doc) notFound();
 
   // 签名失败不致命：交给 ReaderFrame 的刷新按钮重试

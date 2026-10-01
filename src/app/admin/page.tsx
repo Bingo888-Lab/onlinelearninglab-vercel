@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import UploadForm from "./upload-form";
 import { InviteCreateForm, InviteList, type InviteRow } from "./invite-forms";
 import { DeleteButton } from "./delete-button";
+import { queryPage } from "@/lib/page-query-state";
 
 export const dynamic = "force-dynamic";
 
@@ -21,18 +22,20 @@ export default async function AdminPage() {
   // student 访问 /admin → 回首页，不给 403 页面（信息量相同，体验更好）
   if (!guard.ok) redirect("/");
 
-  const supabase = await createServerSupabaseClient();
-  const { data: docs } = await supabase
-    .from("documents")
-    .select("id, title, size_bytes")
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const docsResult = await queryPage(async () => {
+    const supabase = await createServerSupabaseClient();
+    return supabase
+      .from("documents")
+      .select("id, title, size_bytes")
+      .order("created_at", { ascending: false })
+      .limit(200);
+  });
 
-  const { data: invites } = await createAdminClient()
+  const invitesResult = await queryPage(() => createAdminClient()
     .from("invite_codes")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(200));
 
   return (
     <>
@@ -53,13 +56,15 @@ export default async function AdminPage() {
 
         <section>
           <h2 className="mb-3 text-lg font-semibold">已有资料</h2>
-          {(docs ?? []).length === 0 ? (
+          {docsResult.status === "error" ? (
+            <p role="alert" className="text-sm text-neutral-600 dark:text-neutral-400">资料加载失败，请重新加载后重试。</p>
+          ) : (docsResult.data ?? []).length === 0 ? (
             <p data-testid="admin-empty" className="text-sm text-neutral-600 dark:text-neutral-400">
               还没有资料
             </p>
           ) : (
             <ul className="divide-y divide-neutral-200 dark:divide-neutral-800" data-testid="admin-doc-list">
-              {(docs as Doc[]).map((d) => (
+              {(docsResult.data as Doc[]).map((d) => (
                 <li key={d.id} className="flex items-center justify-between gap-3 py-2" data-testid="admin-doc-item">
                   <Link href={`/documents/${d.id}`} className="truncate underline">
                     {d.title}
@@ -78,7 +83,9 @@ export default async function AdminPage() {
           <h2 className="mb-3 text-lg font-semibold">邀请码</h2>
           <InviteCreateForm />
           <div className="mt-4">
-            <InviteList invites={(invites ?? []) as InviteRow[]} />
+            {invitesResult.status === "error" ? (
+              <p role="alert" className="text-sm text-neutral-600 dark:text-neutral-400">邀请码加载失败，请重新加载后重试。</p>
+            ) : <InviteList invites={(invitesResult.data ?? []) as InviteRow[]} />}
           </div>
         </section>
       </main>

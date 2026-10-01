@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import LogoutButton from "@/components/logout-button";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDocumentSearchPattern } from "@/lib/document-search";
+import { queryPage } from "@/lib/page-query-state";
 
 export const dynamic = "force-dynamic";
 
@@ -22,16 +24,17 @@ export default async function Home({
   if (!guard.ok) return null; // proxy.ts 已重定向，这只是兜底
 
   const q = (await searchParams).q?.trim() ?? "";
-  const supabase = await createServerSupabaseClient();
-
-  const query = supabase
-    .from("documents")
-    .select("id, title, size_bytes, created_at")
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  const { data } = q ? await query.ilike("title", `%${q}%`) : await query;
-  const docs = (data ?? []) as Row[];
+  const pattern = getDocumentSearchPattern(q);
+  const result = await queryPage(async () => {
+    const supabase = await createServerSupabaseClient();
+    const query = supabase
+      .from("documents")
+      .select("id, title, size_bytes, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    return pattern ? query.ilike("title", pattern) : query;
+  });
+  const docs = result.status === "success" ? (result.data ?? []) as Row[] : [];
 
   return (
     <>
@@ -64,7 +67,14 @@ export default async function Home({
           </button>
         </form>
 
-        {docs.length === 0 ? (
+        <p className="-mt-4 mb-6 text-xs text-neutral-500">搜索支持通配符：% 匹配任意字符，_ 匹配单个字符。</p>
+
+        {result.status === "error" ? (
+          <div className="text-neutral-600 dark:text-neutral-400" role="alert">
+            <p>资料加载失败，请重新加载后重试。</p>
+            <a className="underline" href={q ? `/?q=${encodeURIComponent(q)}` : "/"}>重新加载</a>
+          </div>
+        ) : docs.length === 0 ? (
           <p data-testid="empty" className="text-neutral-600 dark:text-neutral-400">
             {q ? "没有匹配的资料" : "还没有资料，上传第一份 PDF 吧"}
           </p>
