@@ -136,6 +136,30 @@ pnpm dev            # http://localhost:3000
 | `pnpm env:check` | `environment check passed` |
 | `pnpm e2e` | Playwright journey passes |
 
+### Running E2E safely
+
+`pnpm e2e` starts a reset of the remote Supabase and R2 test resources before the
+journey. Run it only after confirming that the environment file came from the
+dedicated test setup and targets both the allowlisted Supabase project
+`xleewqxbjfetctmsjquk` and R2 bucket `online-learning-lab-test`. The code's exact
+target allowlist and your explicit authorization as the operator are both required;
+operator confirmation cannot expand the code allowlist. Never run E2E with production
+credentials.
+
+Before a local run, check the `.env.local` file's source and target identifiers, then
+run `pnpm env:check`, `pnpm build`, and `pnpm e2e` in that order. The same `.env.local`
+supplies the public Supabase settings embedded during build and the server settings
+used by Playwright's start command. Do not use a production snapshot for this flow:
+the local production snapshot must be named `.env.prod.local`, not
+`.env.production.local` (which Next.js loads automatically for production builds).
+
+GitHub Actions runs E2E only when manually dispatched with the explicit test-target
+confirmation enabled. It uses dedicated `E2E_*` secrets; missing test configuration
+fails `env:check` before build or E2E, with no production fallback. Pull-request checks,
+including fork PRs, do not receive those secrets. The CI script/allowlist check does
+not replace the maintainer's confirmation that the configured project and bucket are
+dedicated test resources.
+
 ## Deploying to Vercel
 
 1. Import the repo at [vercel.com/new](https://vercel.com/new) (public repo, Hobby plan).

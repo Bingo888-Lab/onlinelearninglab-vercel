@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
+### Changed
+
+- Require an explicit manual confirmation before CI runs E2E against remote test
+  resources, and prepare/check the dedicated E2E environment before building.
+- Document the test-target allowlist, operator authorization, and local E2E safety
+  procedure in English and Chinese.
+- Fail closed before constructing remote clients unless reset targets exactly match
+  the allowlisted Supabase test project and R2 test bucket.
+- Apply URL-normalized same-origin `next` validation to both login and email-confirm
+  redirects, with regression coverage for unsafe and malformed destinations.
+- Add static CI workflow checks for trigger, secret, environment, and step-order
+  boundaries; these checks do not run remote E2E or reset resources.
+
 ## [0.1.0] - 2026-09-28
 
 First runnable release: a learning platform that stores PDFs in Cloudflare R2 and
@@ -40,5 +55,6 @@ serves them to signed-in students.
   client-declared. Mitigated by the 50 MB cap and admin-only deletion.
 - `documents` is unpaginated and capped at 200 rows per query.
 
-[Unreleased]: https://github.com/Bingo888-Lab/onlinelearninglab-vercel/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Bingo888-Lab/onlinelearninglab-vercel/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Bingo888-Lab/onlinelearninglab-vercel/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Bingo888-Lab/onlinelearninglab-vercel/releases/tag/v0.1.0

@@ -134,6 +134,24 @@ pnpm dev            # http://localhost:3000
 | `pnpm env:check` | `环境变量检查通过` |
 | `pnpm e2e` | Playwright 关键路径通过 |
 
+### 安全运行 E2E
+
+`pnpm e2e` 会先重置远端 Supabase 与 R2 测试资源，再运行关键路径。运行前必须
+确认环境文件来源于专用测试配置，并同时指向白名单 Supabase 项目
+`xleewqxbjfetctmsjquk` 和 R2 桶 `online-learning-lab-test`。代码中的精确目标白名单
+与操作者的明确授权两者缺一不可；操作者确认不能扩大代码白名单。绝不要用生产凭据运行 E2E。
+
+本地运行前，先核对 `.env.local` 的来源与目标标识，再依次执行
+`pnpm env:check`、`pnpm build`、`pnpm e2e`。同一个 `.env.local` 为构建时内联的公开
+Supabase 配置以及 Playwright 启动的服务端配置提供来源。此流程不要使用生产快照：
+本地生产快照应命名为 `.env.prod.local`，不能命名为 `.env.production.local`
+（Next.js 会在 production build 时自动加载后者）。
+
+GitHub Actions 只有在手动触发并明确勾选测试目标确认后才运行 E2E。它使用专用
+`E2E_*` secrets；测试配置缺失会在 build 或 E2E 前由 `env:check` 安全失败，不会回退到生产配置。
+Pull request 检查（包括 fork PR）不会获得这些 secrets。CI 脚本/白名单校验不能替代维护者
+确认配置的项目与桶确实是专用测试资源。
+
 ## 部署到 Vercel
 
 1. 在 [vercel.com/new](https://vercel.com/new) 导入本仓库（公开仓库，Hobby 套餐）。
