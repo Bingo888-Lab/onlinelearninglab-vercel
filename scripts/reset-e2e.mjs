@@ -5,10 +5,11 @@
  * 用法：
  *   E2E_ALLOW_REMOTE_RESET=1 node scripts/reset-e2e.mjs
  *
- * 安全阀两道，都不可绕过：
+ * 安全阀三道，都不可绕过；运行前还需维护者确认资源专用于测试：
  *  1. 必须显式设置 E2E_ALLOW_REMOTE_RESET=1
- *  2. R2_BUCKET 必须以 -test 结尾
- * 目的是防止有人不小心对着生产桶跑 truncate。
+ *  2. Supabase 必须是白名单测试项目 xleewqxbjfetctmsjquk
+ *  3. R2_BUCKET 必须是 online-learning-lab-test
+ * 操作者授权不能扩大目标白名单，避免误清理生产或未知资源。
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
@@ -21,14 +22,12 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { parseEnv, findEnvProblems } from "./check-env.mjs";
+import { SafeResetTargetError, withSafeResetTarget } from "./reset-e2e-guard.mjs";
+
+export { assertSafeResetTarget } from "./reset-e2e-guard.mjs";
 
 const E2E_ADMIN_EMAIL = "e2e-admin@onlinelearninglab.test";
 const CREDENTIALS_FILE = resolve("e2e/.tmp/admin.json");
-
-export function assertSafeResetTarget({ allowed, bucket }) {
-  if (!allowed) throw new Error("E2E_ALLOW_REMOTE_RESET must be 1 — 拒绝清理远程数据");
-  if (!bucket.endsWith("-test")) throw new Error(`R2_BUCKET (${bucket}) 必须以 -test 结尾`);
-}
 
 function r2Client(env) {
   return new S3Client({
@@ -103,16 +102,19 @@ async function ensureE2EAdmin(supabase) {
 
 async function main() {
   const env = parseEnv(await readFile(".env.local", "utf8"));
+  await withSafeResetTarget({
+    allowed: process.env.E2E_ALLOW_REMOTE_RESET === "1",
+    supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL,
+    bucket: env.R2_BUCKET,
+  }, () => resetTestResources(env));
+}
+
+async function resetTestResources(env) {
   const problems = findEnvProblems(env);
   if (problems.length > 0) {
     for (const problem of problems) console.error(`  - ${problem}`);
     process.exit(1);
   }
-
-  assertSafeResetTarget({
-    allowed: process.env.E2E_ALLOW_REMOTE_RESET === "1",
-    bucket: env.R2_BUCKET,
-  });
 
   const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -134,7 +136,9 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main().catch((error) => {
-    console.error(error.message);
+    console.error(error instanceof SafeResetTargetError
+      ? error.message
+      : "E2E reset failed; error details suppressed to avoid exposing credentials.");
     process.exit(1);
   });
 }
