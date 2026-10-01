@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getRegistrationMessage } from "./registration-message";
+import { EmailInput, PasswordInput, InviteCodeInput } from "@/lib/validation";
+import { submitRegistration } from "./register-action";
 
 export default function RegisterForm() {
   const router = useRouter();
@@ -14,36 +16,19 @@ export default function RegisterForm() {
   const [done, setDone] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(true);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
-
-    const res = await fetch("/api/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, inviteCode }),
-    });
-
-    setBusy(false);
-
-    if (res.status === 201) {
-      const result = (await res.json()) as { needsEmailConfirmation: boolean };
-      setNeedsEmailConfirmation(result.needsEmailConfirmation);
-      setDone(true);
+    if (busyRef.current) return;
+    if (!EmailInput.safeParse(email).success || !PasswordInput.safeParse(password).success || !InviteCodeInput.safeParse(inviteCode).success) {
+      setError("请检查邮箱、密码（至少 8 位且最多 72 个 UTF-8 字节）与邀请码格式");
       return;
     }
-
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    // 邀请码的所有失败原因在服务端已被合并成一个 code
-    setError(
-      body.error === "invite_invalid"
-        ? "邀请码无效或已过期"
-        : body.error === "invalid_input"
-          ? "请检查邮箱与密码格式"
-          : "注册失败，请稍后再试",
-    );
+    await submitRegistration(busyRef, fetch, { email, password, inviteCode }, {
+      start: () => { setBusy(true); setError(null); }, finish: () => setBusy(false), error: setError,
+      success: needsConfirmation => { setNeedsEmailConfirmation(needsConfirmation); setDone(true); },
+    });
   }
 
   if (done) {

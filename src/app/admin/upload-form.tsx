@@ -2,9 +2,10 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { configuredUploadLimit, requestSignedUploadUrl, runUploadPipeline, saveDocumentMetadata, validateUploadFile } from "./upload-action";
 
 const PDF_CONTENT_TYPE = "application/pdf";
-const MAX_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 50);
+const UPLOAD_LIMIT_BYTES = configuredUploadLimit(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB);
 
 type Phase = "idle" | "signing" | "uploading" | "saving" | "done";
 
@@ -44,11 +45,13 @@ export default function UploadForm() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   const busy = phase !== "idle" && phase !== "done";
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busyRef.current) return;
     const file = inputRef.current?.files?.[0];
     if (!file) {
       setError("请选择一个 PDF 文件");
@@ -56,49 +59,23 @@ export default function UploadForm() {
     }
 
     // 前置拦截，别浪费一次往返
-    if (file.type !== PDF_CONTENT_TYPE) {
-      setError("只接受 PDF 文件");
-      return;
-    }
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setError(`文件超过 ${MAX_MB} MB 上限`);
+    const fileError = validateUploadFile(file, UPLOAD_LIMIT_BYTES);
+    if (fileError) {
+      setError(fileError);
       return;
     }
 
-    setError(null);
-    setPercent(0);
-    const id = crypto.randomUUID();
-
-    try {
-      setPhase("signing");
-      const signRes = await fetch(`/api/documents/${id}/upload-url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (!signRes.ok) throw new Error("获取上传链接失败");
-      const { url } = (await signRes.json()) as { url: string };
-
-      setPhase("uploading");
-      setPercent(0);
-      await putWithProgress(url, file, setPercent);
-
-      setPhase("saving");
-      const saveRes = await fetch("/api/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, title: file.name, sizeBytes: file.size }),
-      });
-      if (!saveRes.ok) throw new Error("保存元数据失败");
-
-      setPhase("done");
-      setPercent(100);
-      if (inputRef.current) inputRef.current.value = "";
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "上传失败");
-      setPhase("idle");
+    let id: string;
+    try { id = crypto.randomUUID(); } catch {
+      setError("无法开始上传，请刷新页面后重试");
+      return;
     }
+    await runUploadPipeline(busyRef, file, id, {
+      sign: uploadId => requestSignedUploadUrl(fetch, uploadId), put: putWithProgress,
+      save: (uploadId, uploadFile) => saveDocumentMetadata(fetch, uploadId, uploadFile),
+    }, { phase: setPhase, progress: setPercent, start: () => { setError(null); setPercent(0); }, finish: () => {}, error: setError,
+      success: () => { if (inputRef.current) inputRef.current.value = ""; try { router.refresh(); } catch { /* save confirmed */ } },
+    });
   }
 
   return (

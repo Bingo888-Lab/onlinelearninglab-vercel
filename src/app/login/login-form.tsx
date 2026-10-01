@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getSafeNextPath } from "@/lib/safe-next";
+import { submitLogin } from "./login-action";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -13,23 +14,17 @@ export default function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
-
-    const supabase = createClient();
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-
-    setBusy(false);
-    if (err) {
-      // 不区分「邮箱不存在」与「密码错误」——不提供账号枚举接口
-      setError("邮箱或密码不正确");
-      return;
-    }
-    router.push(getSafeNextPath(next, window.location.origin));
-    router.refresh();
+    if (busyRef.current) return;
+    await submitLogin(busyRef, async () => {
+      const { error: err } = await createClient().auth.signInWithPassword({ email, password });
+      return { error: err };
+    }, () => { try { router.push(getSafeNextPath(next, window.location.origin)); router.refresh(); } catch { /* login confirmed; navigation can be retried by the user */ } }, {
+      start: () => { setBusy(true); setError(null); }, finish: () => setBusy(false), error: setError,
+    });
   }
 
   return (

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { InviteCodeInput } from "@/lib/validation";
+import { createInvite, updateInvite } from "./invite-action";
 
 export type InviteRow = {
   code: string;
@@ -17,25 +19,19 @@ export function InviteCreateForm() {
   const [maxUses, setMaxUses] = useState(5);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
-
-    const res = await fetch("/api/invites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, maxUses }),
-    });
-    setBusy(false);
-
-    if (!res.ok) {
-      setError(res.status === 502 ? "创建失败，代码可能已存在" : "创建失败");
+    if (busyRef.current) return;
+    if (!InviteCodeInput.safeParse(code).success || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 10_000) {
+      setError("请检查邀请码（去除首尾空格后 4–40 个字符）和可用次数");
       return;
     }
-    setCode("");
-    router.refresh();
+    await createInvite(busyRef, fetch, { code, maxUses }, {
+      start: () => { setBusy(true); setError(null); }, finish: () => setBusy(false), error: setError,
+      success: () => { setCode(""); try { router.refresh(); } catch { /* create confirmed */ } },
+    });
   }
 
   return (
@@ -45,7 +41,6 @@ export function InviteCreateForm() {
         <input
           required
           minLength={4}
-          maxLength={40}
           data-testid="invite-code-input"
           value={code}
           onChange={(e) => setCode(e.target.value)}
@@ -83,22 +78,24 @@ export function InviteCreateForm() {
 
 export function InviteList({ invites }: { invites: InviteRow[] }) {
   const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [busyCode, setBusyCode] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   async function act(method: "PATCH" | "DELETE", code: string, body?: unknown) {
-    await fetch(`/api/invites/${encodeURIComponent(code)}`, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      ...(body ? { body: JSON.stringify(body) } : {}),
+    if (busyRef.current) return;
+    await updateInvite(busyRef, fetch, method, code, body, {
+      start: () => { setBusyCode(code); setError(null); }, finish: () => setBusyCode(null), error: setError,
+      success: () => { setError(null); try { router.refresh(); } catch { /* mutation confirmed */ } },
     });
-    router.refresh();
   }
 
   if (invites.length === 0) {
-    return <p className="text-sm text-neutral-600 dark:text-neutral-400">还没有邀请码</p>;
+    return <div>{error && <p role="alert" className="py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}<p className="text-sm text-neutral-600 dark:text-neutral-400">还没有邀请码</p></div>;
   }
 
   return (
-    <ul className="divide-y divide-neutral-200 dark:divide-neutral-800" data-testid="invite-list">
+    <div>{error && <p role="alert" className="py-2 text-sm text-red-600 dark:text-red-400">{error}</p>}<ul className="divide-y divide-neutral-200 dark:divide-neutral-800" data-testid="invite-list">
       {invites.map((i) => {
         const expired = i.expires_at !== null && new Date(i.expires_at) < new Date();
         const exhausted = i.used_count >= i.max_uses;
@@ -117,6 +114,7 @@ export function InviteList({ invites }: { invites: InviteRow[] }) {
               <button
                 type="button"
                 onClick={() => act("PATCH", i.code, { maxUses: i.max_uses + 5 })}
+                disabled={busyCode !== null}
                 className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-700"
               >
                 +5 次
@@ -126,6 +124,7 @@ export function InviteList({ invites }: { invites: InviteRow[] }) {
                   type="button"
                   onClick={() => act("DELETE", i.code)}
                   data-testid="invite-disable"
+                  disabled={busyCode !== null}
                   className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-700"
                 >
                   禁用
@@ -134,6 +133,7 @@ export function InviteList({ invites }: { invites: InviteRow[] }) {
                 <button
                   type="button"
                   onClick={() => act("PATCH", i.code, { isActive: true })}
+                  disabled={busyCode !== null}
                   className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-700"
                 >
                   启用
@@ -143,6 +143,6 @@ export function InviteList({ invites }: { invites: InviteRow[] }) {
           </li>
         );
       })}
-    </ul>
+    </ul></div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { refreshReaderUrl } from "./reader-action";
 
 export default function ReaderFrame({
   documentId,
@@ -13,20 +14,13 @@ export default function ReaderFrame({
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
+  const busyRef = useRef(false);
 
   // 预签名 URL 会过期。iframe 首次加载后浏览器已缓存整个 PDF，长阅读不受影响；
   // 只有「新开页面 / 刷新」时才可能撞上过期，这时换一张新签名即可。
   const refresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const res = await fetch(`/api/documents/${documentId}/file`, { cache: "no-store" });
-      if (res.ok) {
-        const { url: next } = (await res.json()) as { url: string };
-        setUrl(next);
-      }
-    } finally {
-      setRefreshing(false);
-    }
+    await refreshReaderUrl(busyRef, fetch, `/api/documents/${documentId}/file`, { start: () => { setRefreshing(true); setError(false); }, success: setUrl, error: () => setError(true), finish: () => setRefreshing(false) });
   }, [documentId]);
 
   return (
@@ -43,6 +37,7 @@ export default function ReaderFrame({
           {refreshing ? "刷新中…" : "链接已过期？刷新"}
         </button>
       </div>
+      {error && <p role="alert" className="px-4 py-2 text-sm text-red-600 dark:text-red-400">刷新链接失败，请检查网络后重试</p>}
       <iframe
         src={url}
         title={title}

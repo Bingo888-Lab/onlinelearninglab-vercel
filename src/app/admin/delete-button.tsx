@@ -1,18 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { deleteDocument } from "./delete-action";
 
 export function DeleteButton({ documentId, title }: { documentId: string; title: string }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   async function remove() {
-    setBusy(true);
-    const res = await fetch(`/api/documents/${documentId}`, { method: "DELETE" });
-    setBusy(false);
-    if (res.ok) router.refresh();
+    if (busyRef.current) return;
+    await deleteDocument(busyRef, fetch, `/api/documents/${documentId}`, {
+      start: () => { setBusy(true); setError(null); }, finish: () => setBusy(false), error: setError,
+      success: () => { try { router.refresh(); } catch { /* delete is confirmed */ } setConfirming(false); },
+    });
   }
 
   if (!confirming) {
@@ -31,6 +35,7 @@ export function DeleteButton({ documentId, title }: { documentId: string; title:
   return (
     <span className="flex shrink-0 items-center gap-1 text-sm">
       <span className="text-neutral-600 dark:text-neutral-400">确定删除「{title}」？</span>
+      {error && <span role="alert" className="text-red-600 dark:text-red-400">{error}</span>}
       <button
         type="button"
         onClick={remove}
@@ -43,6 +48,7 @@ export function DeleteButton({ documentId, title }: { documentId: string; title:
       <button
         type="button"
         onClick={() => setConfirming(false)}
+        disabled={busy}
         className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-700"
       >
         取消
