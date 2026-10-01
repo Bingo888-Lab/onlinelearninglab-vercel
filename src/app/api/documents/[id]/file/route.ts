@@ -35,8 +35,8 @@ export async function GET(
   try {
     const url = await presignGet(data.object_key);
     return NextResponse.json({ url, expiresAt: Date.now() + TTL() * 1000 });
-  } catch (err) {
-    console.error("presignGet failed", { documentId: id, err });
+  } catch {
+    console.error({ operation: "document_file_sign", code: "sign_failed", documentId: id });
     return NextResponse.json({ error: "sign_failed" }, { status: 502 });
   }
 }

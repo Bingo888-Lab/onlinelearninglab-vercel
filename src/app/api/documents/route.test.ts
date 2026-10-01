@@ -5,7 +5,8 @@ const requireUser = vi.fn();
 vi.mock("@/lib/auth", () => ({ requireAdmin, requireUser }));
 
 const headObject = vi.fn();
-vi.mock("@/lib/r2", () => ({ headObject, presignPut: vi.fn(), presignGet: vi.fn(), deleteObject: vi.fn() }));
+const deleteObject = vi.fn();
+vi.mock("@/lib/r2", () => ({ headObject, presignPut: vi.fn(), presignGet: vi.fn(), deleteObject }));
 
 const insert = vi.fn();
 const order = vi.fn();
@@ -47,6 +48,7 @@ beforeEach(() => {
   select.mockReturnValue({ order: (...a: unknown[]) => order(...a) });
   order.mockReturnValue({ limit: (...a: unknown[]) => limit(...a) });
   limit.mockResolvedValue({ data: [{ id: ID }], error: null });
+  deleteObject.mockClear();
 });
 
 describe("POST /api/documents — 授权", () => {
@@ -130,6 +132,20 @@ describe("POST /api/documents — 入库核验", () => {
     const res = await POST(body());
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "insert_failed" });
+    // The R2 object can already exist (or the response may have been lost): never blind-delete.
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("metadata insert rejected → 502 insert_failed and never deletes R2", async () => {
+    insert.mockReturnValue({ select: () => ({ single: async () => { throw new Error("secret DB detail"); } }) });
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { POST } = await load();
+    const res = await POST(body());
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "insert_failed" });
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("secret DB detail");
+    logSpy.mockRestore();
   });
 });
 
@@ -154,8 +170,17 @@ describe("GET /api/documents", () => {
     ilike.mockReturnValue({ order: (...a: unknown[]) => order(...a) });
     select.mockReturnValue({ ilike: (...a: unknown[]) => ilike(...a) });
     const { GET } = await load();
-    await GET(new Request("http://localhost/api/documents?q=lecture"));
+    await GET(new Request("http://localhost/api/documents?q=%20lecture%20"));
     expect(ilike).toHaveBeenCalledWith("title", "%lecture%");
+  });
+
+  it("保留 % 和 _ 的 ilike 通配符语义", async () => {
+    requireUser.mockResolvedValue({ ok: true, userId: "u1", role: "student" });
+    ilike.mockReturnValue({ order: (...a: unknown[]) => order(...a) });
+    select.mockReturnValue({ ilike: (...a: unknown[]) => ilike(...a) });
+    const { GET } = await load();
+    await GET(new Request("http://localhost/api/documents?q=%25_%25"));
+    expect(ilike).toHaveBeenCalledWith("title", "%%_%%");
   });
 
   it("查询失败 → 502", async () => {
@@ -164,5 +189,17 @@ describe("GET /api/documents", () => {
     const { GET } = await load();
     const res = await GET(new Request("http://localhost/api/documents"));
     expect(res.status).toBe(502);
+  });
+
+  it("GET query rejected → 502 query_failed without SDK details", async () => {
+    requireUser.mockResolvedValue({ ok: true, userId: "u1", role: "student" });
+    limit.mockRejectedValue(new Error("secret query response"));
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await load();
+    const res = await GET(new Request("http://localhost/api/documents"));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "query_failed" });
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("secret query response");
+    logSpy.mockRestore();
   });
 });

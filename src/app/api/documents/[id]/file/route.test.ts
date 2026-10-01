@@ -29,6 +29,7 @@ beforeEach(() => {
   requireUser.mockResolvedValue({ ok: true, userId: "u1", role: "student" });
   requireAdmin.mockResolvedValue({ ok: true, userId: "admin-1", role: "admin" });
   single.mockResolvedValue({ data: { id: ID, object_key: `documents/${ID}.pdf` }, error: null });
+  presignGet.mockResolvedValue("https://signed.example/doc.pdf?sig=abc");
 });
 
 describe("GET /api/documents/[id]/file — 预签名 GET", () => {
@@ -68,10 +69,20 @@ describe("GET /api/documents/[id]/file — 预签名 GET", () => {
 
   it("签名 URL 绝不出现在错误体里（签名即凭据）", async () => {
     presignGet.mockRejectedValue(new Error("boom https://signed.example/doc.pdf?sig=leaked"));
-    const { GET } = await load();
-    const res = await GET(new Request("http://localhost/x"), params());
-    expect(res.status).toBe(502);
-    const body = await res.text();
-    expect(body).not.toContain("sig=leaked");
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { GET } = await load();
+      const res = await GET(new Request("http://localhost/x"), params());
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: "sign_failed" });
+      const logs = JSON.stringify(logSpy.mock.calls);
+      expect(logs).not.toContain("sig=leaked");
+      expect(logs).not.toContain("boom");
+      expect(logs).not.toContain("Error:");
+      expect(logSpy).toHaveBeenCalledOnce();
+      expect(logSpy).toHaveBeenCalledWith({ operation: "document_file_sign", code: "sign_failed", documentId: ID });
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });

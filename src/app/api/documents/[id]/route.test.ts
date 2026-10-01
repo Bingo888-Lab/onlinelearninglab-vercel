@@ -6,16 +6,16 @@ vi.mock("@/lib/auth", () => ({ requireAdmin }));
 const deleteObject = vi.fn(async () => undefined);
 vi.mock("@/lib/r2", () => ({ deleteObject, headObject: vi.fn(), presignGet: vi.fn(), presignPut: vi.fn() }));
 
-const single = vi.fn();
+const maybeSingle = vi.fn();
 const eqDelete = vi.fn(
   async (..._args: unknown[]): Promise<{ data: null; error: { message?: string } | null }> => ({
     data: null,
     error: null,
   }),
 );
-const eqSelect = vi.fn(() => ({ single }));
+const eqSelect = vi.fn(() => ({ maybeSingle }));
 const from = vi.fn(() => {
-  // 真实链路：from().select().eq().single() 与 from().delete().eq()
+  // Query shape: from().select().eq().maybeSingle() and from().delete().eq()
   const builder: Record<string, unknown> = {
     select: () => ({ eq: eqSelect }),
     delete: () => ({ eq: eqDelete }),
@@ -41,7 +41,7 @@ beforeEach(() => {
   // 否则上一个用例的 mockRejectedValue 会泄漏到下一个。
   requireAdmin.mockResolvedValue({ ok: true, userId: "admin-1", role: "admin" });
   deleteObject.mockResolvedValue(undefined);
-  single.mockResolvedValue({ data: { id: ID, object_key: KEY }, error: null });
+  maybeSingle.mockResolvedValue({ data: { id: ID, object_key: KEY }, error: null });
   eqDelete.mockResolvedValue({ data: null, error: null });
 });
 
@@ -75,14 +75,40 @@ describe("DELETE /api/documents/[id]", () => {
   });
 
   it("DB 无此行 → 404，不动 R2", async () => {
-    single.mockResolvedValue({ data: null, error: { message: "not found" } });
+    maybeSingle.mockResolvedValue({ data: null, error: null });
     const { DELETE } = await load();
     const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
     expect(res.status).toBe(404);
     expect(deleteObject).not.toHaveBeenCalled();
   });
 
-  it("R2 删除失败 → 502，DB 行保留（不产生孤儿）", async () => {
+  it("查行发生数据库错误 → 502 query_failed，不删 R2 且响应不含 SDK 内容", async () => {
+    maybeSingle.mockResolvedValue({ data: null, error: { code: "XX000", message: "sensitive database detail" } });
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { DELETE } = await load();
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
+    expect(res.status).toBe(502);
+    const responseText = await res.text();
+    expect(JSON.parse(responseText)).toEqual({ error: "query_failed" });
+    expect(responseText).not.toContain("sensitive database detail");
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("sensitive database detail");
+    expect(deleteObject).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it("lookup rejected → 502 query_failed，不删除 R2", async () => {
+    maybeSingle.mockRejectedValue(new Error("secret lookup response"));
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { DELETE } = await load();
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "query_failed" });
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("secret lookup response");
+    logSpy.mockRestore();
+  });
+
+  it("R2 删除失败 → 502，且不尝试 DB 删除", async () => {
     deleteObject.mockRejectedValue(new Error("r2 down"));
     const { DELETE } = await load();
     const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
@@ -90,12 +116,29 @@ describe("DELETE /api/documents/[id]", () => {
     expect(eqDelete).not.toHaveBeenCalled();
   });
 
-  it("R2 已删但 DB 删除失败 → 502 且标记 orphan，R2 key 记入日志", async () => {
-    eqDelete.mockResolvedValue({ data: null, error: { message: "db down" } });
+  it("R2 已删但 DB 删除错误 → 502 partial signal，不保证 DB 删除状态", async () => {
+    eqDelete.mockResolvedValue({ data: null, error: { message: "sensitive database detail" } });
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { DELETE } = await load();
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
+    expect(res.status).toBe(502);
+    const responseText = await res.text();
+    expect(JSON.parse(responseText)).toEqual({ error: "db_delete_failed", orphan: true });
+    expect(responseText).not.toContain("sensitive database detail");
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("sensitive database detail");
+    logSpy.mockRestore();
+  });
+
+  it("R2 已删但 DB delete rejected → 502 partial signal", async () => {
+    eqDelete.mockRejectedValue(new Error("secret delete response"));
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { DELETE } = await load();
     const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), params());
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "db_delete_failed", orphan: true });
+    expect(deleteObject).toHaveBeenCalledWith(KEY);
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain("secret delete response");
+    logSpy.mockRestore();
   });
 
   it("id 非法 uuid → 400", async () => {

@@ -3,6 +3,7 @@ import { requireAdmin, requireUser } from "@/lib/auth";
 import { headObject } from "@/lib/r2";
 import { buildObjectKey, PDF_CONTENT_TYPE } from "@/lib/r2-keys";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDocumentSearchPattern } from "@/lib/document-search";
 import { DocumentBody } from "@/lib/validation";
 
 const LIST_LIMIT = 200;
@@ -35,20 +36,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "size_mismatch" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("documents")
-    .insert({
-      id,
-      title,
-      object_key: key,
-      size_bytes: sizeBytes,
-      uploaded_by: guard.userId,
-    })
-    .select()
-    .single();
+  let data: unknown;
+  let error: unknown;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const result = await supabase
+      .from("documents")
+      .insert({
+        id,
+        title,
+        object_key: key,
+        size_bytes: sizeBytes,
+        uploaded_by: guard.userId,
+      })
+      .select()
+      .single();
+    data = result.data;
+    error = result.error;
+  } catch {
+    error = true;
+  }
 
   if (error) {
+    // The object may already exist in R2 even if this metadata response failed or was lost.
+    // Do not delete it automatically; support can reconcile by this non-secret document ID.
+    console.error("document metadata insert failed", { operation: "document_insert", code: "insert_failed", documentId: id });
     return NextResponse.json({ error: "insert_failed" }, { status: 502 });
   }
   return NextResponse.json(data, { status: 201 });
@@ -60,21 +72,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: guard.code }, { status: guard.status });
   }
 
-  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
-  const supabase = await createServerSupabaseClient();
-
-  const { data, error } = q
-    ? await supabase
-        .from("documents")
-        .select("*")
-        .ilike("title", `%${q}%`)
-        .order("created_at", { ascending: false })
-        .limit(LIST_LIMIT)
-    : await supabase
-        .from("documents")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(LIST_LIMIT);
+  const pattern = getDocumentSearchPattern(new URL(request.url).searchParams.get("q") ?? "");
+  let data: unknown;
+  let error: unknown;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const result = pattern
+      ? await supabase
+          .from("documents")
+          .select("*")
+          .ilike("title", pattern)
+          .order("created_at", { ascending: false })
+          .limit(LIST_LIMIT)
+      : await supabase
+          .from("documents")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(LIST_LIMIT);
+    data = result.data;
+    error = result.error;
+  } catch {
+    error = true;
+  }
 
   if (error) {
     return NextResponse.json({ error: "query_failed" }, { status: 502 });
