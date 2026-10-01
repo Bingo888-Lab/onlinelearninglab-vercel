@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "Run E2E against the explicitly confirmed dedicated test project and bucket (remote test resources are reset)"
+        type: boolean
+        required: true
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -45,8 +51,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # 会清空远程 Supabase/R2，只允许手动触发，防止误删生产数据
-    if: github.event_name == 'workflow_dispatch'
+    # 远端测试资源会被清空；必须由维护者手动确认专用测试项目和桶。
+    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e == true
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -60,14 +66,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Build
-        run: pnpm build
-
-      # 只放测试项目的凭据；reset-e2e.mjs 的两道安全阀会拒绝非 -test 桶
-      - name: Write .env.local from secrets
+      # 仅配置维护者存入的专用测试 secrets；不提供任何生产回退值。
+      - name: Write .env.local from E2E secrets
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.E2E_SUPABASE_PUBLISHABLE_KEY }}
@@ -79,14 +79,22 @@ jobs:
         run: |
           : > .env.local
           for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
-            echo "${name}=${!name}" >> .env.local
+            printf '%s=%s\n' "$name" "${!name}" >> .env.local
           done
-          pnpm env:check
+
+      - name: Check E2E environment
+        run: pnpm env:check
+
+      # Next inlines NEXT_PUBLIC_* during build; .env.local is also the source
+      # parsed by Playwright and passed unchanged to `next start`.
+      - name: Build with E2E environment
+        run: pnpm build
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: E2E
         run: pnpm e2e
-        env:
-          E2E_ALLOW_REMOTE_RESET: "1"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
