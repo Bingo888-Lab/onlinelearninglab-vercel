@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getSafeNextPath } from "@/lib/safe-next";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function LoginForm() {
       setError("邮箱或密码不正确");
       return;
     }
-    router.push(next);
+    router.push(getSafeNextPath(next, window.location.origin));
     router.refresh();
   }
 

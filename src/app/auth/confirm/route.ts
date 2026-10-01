@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getSafeNextPath } from "@/lib/safe-next";
 
 const OTP_TYPES = new Set([
   "signup",
@@ -10,8 +11,6 @@ const OTP_TYPES = new Set([
   "email",
   "phone_change",
 ]);
-const SAFE_NEXT = /^\/(?![\\/])/;
-
 function loginFailure(origin: string) {
   const url = new URL("/login", origin);
   url.searchParams.set("error", "confirmation_failed");
@@ -35,8 +34,7 @@ export async function GET(request: Request) {
 
   if (error) return loginFailure(url.origin);
 
-  // Only allow an internal path. Reject `//evil`, backslash variants and full URLs.
   const next = url.searchParams.get("next") ?? "/";
-  const destination = SAFE_NEXT.test(next) ? new URL(next, url.origin) : new URL("/", url.origin);
+  const destination = new URL(getSafeNextPath(next, url.origin), url.origin);
   return NextResponse.redirect(destination);
 }
