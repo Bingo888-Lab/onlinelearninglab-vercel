@@ -146,8 +146,3 @@ Errors are `{"error":"<code>"}`. Codes: `unauthorized` 401, `forbidden` 403,
 `upload-error`, `admin-doc-list`, `admin-doc-item`, `admin-empty`, `delete-doc`,
 `delete-confirm`, `invite-form`, `invite-code-input`, `invite-maxuses`,
 `invite-submit`, `invite-list`, `invite-item`, `invite-disable`, `invite-error`.
-
-## Plan
-
-`.hermes/plans/2026-09-28_093415-vercel-r2-pdf-platform.md` is the v0.1.0 design
-record, including the risks (R1–R9) that shaped the implementation.
