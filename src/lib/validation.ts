@@ -2,6 +2,18 @@ import { z } from "zod";
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
+export const EmailInput = z.string().email().max(254);
+// Supabase Auth's upstream Go implementation declares MaxPasswordLength = 72 and checks
+// len(password) (Go string length is bytes, including UTF-8 bytes), documented at
+// https://github.com/supabase/auth/blob/master/internal/api/password.go.
+// This is an application-side 72-byte contract; hosted Auth instance versions are unknown,
+// and this does not claim that an upstream service truncates passwords.
+export const PasswordInput = z
+  .string()
+  .min(8)
+  .refine((password) => new TextEncoder().encode(password).byteLength <= 72);
+export const InviteCodeInput = z.string().trim().min(4).max(40);
+
 /** POST /api/documents 入库请求体 */
 export const DocumentBody = z.object({
   id: z.string().uuid(),
@@ -16,15 +28,15 @@ export const UploadUrlBody = z.object({
 
 /** POST /api/register 请求体 */
 export const RegisterBody = z.object({
-  email: z.string().email().max(254),
-  // 72 字节是 bcrypt 上限，超了静默截断反而让用户困惑
-  password: z.string().min(8).max(72),
-  inviteCode: z.string().min(4).max(40),
+  // Email is deliberately not trimmed: leading/trailing whitespace is invalid input.
+  email: EmailInput,
+  password: PasswordInput,
+  inviteCode: InviteCodeInput,
 });
 
 /** POST /api/invites 请求体 */
 export const InviteBody = z.object({
-  code: z.string().trim().min(4).max(40),
+  code: InviteCodeInput,
   maxUses: z.number().int().positive().max(10_000),
   expiresAt: z.string().datetime().nullable().optional(),
 });
